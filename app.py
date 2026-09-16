@@ -188,14 +188,33 @@ def free_port(preferred=5055) -> int:
         return s.getsockname()[1]
 
 
+def open_browser(url: str, port: int):
+    """Attend que le serveur réponde, puis ouvre le navigateur par défaut."""
+    for _ in range(100):  # jusqu'à 20 s
+        with socket.socket() as s:
+            if s.connect_ex(("127.0.0.1", port)) == 0:
+                break
+        time.sleep(0.2)
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(url)  # noqa - navigateur par défaut de Windows
+        elif not webbrowser.open(url):
+            raise RuntimeError("aucun navigateur trouvé")
+    except Exception as e:
+        print(f"\n>>> Impossible d'ouvrir le navigateur ({e}).")
+        print(f">>> Ouvre-le toi-même et va sur : {url}\n")
+
+
 if __name__ == "__main__":
     port = free_port()
     url = f"http://127.0.0.1:{port}"
-    print(f"ClipDL lancé sur {url}")
+    print("=" * 60)
+    print(f"  ClipDL est lancé. Ouvre ton navigateur sur : {url}")
+    print("=" * 60)
     print(f"Fichiers enregistrés dans : {DOWNLOAD_DIR}")
     print(f"FFmpeg : {FFMPEG or 'INTROUVABLE'}")
     print("Ferme cette fenêtre pour arrêter l'application.")
     if "--no-browser" not in sys.argv:
-        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+        threading.Thread(target=open_browser, args=(url, port), daemon=True).start()
     # 127.0.0.1 = accessible uniquement depuis ton PC
     app.run(host="127.0.0.1", port=port, debug=False, threaded=True)
