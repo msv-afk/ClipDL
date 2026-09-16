@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClipDL</title>
+<style>
+  :root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e7e9ee;--mut:#8a91a0;--acc:#7c5cff;--ok:#2fbf71;--err:#ff5d6c}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.5 system-ui,Segoe UI,sans-serif;display:flex;justify-content:center;padding:48px 16px}
+  main{width:100%;max-width:640px}
+  h1{margin:0 0 4px;font-size:28px;letter-spacing:-.02em}
+  .sub{color:var(--mut);margin:0 0 28px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+  input,select,button{font:inherit;color:inherit}
+  input[type=url]{width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:#0c0e12;outline:none}
+  input[type=url]:focus{border-color:var(--acc)}
+  .row{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .seg button{background:none;border:0;padding:10px 18px;cursor:pointer;color:var(--mut)}
+  .seg button.on{background:var(--acc);color:#fff}
+  select{background:#0c0e12;border:1px solid var(--line);border-radius:10px;padding:10px}
+  .go{margin-left:auto;background:var(--acc);border:0;border-radius:10px;padding:10px 22px;color:#fff;font-weight:600;cursor:pointer}
+  .go:disabled{opacity:.5;cursor:default}
+  #jobs{margin-top:18px;display:flex;flex-direction:column;gap:10px}
+  .job{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .job img{width:96px;height:54px;object-fit:cover;border-radius:6px;background:#0c0e12;flex-shrink:0}
+  .job .info{flex:1;min-width:0}
+  .job .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+  .job .s{color:var(--mut);font-size:13px}
+  .bar{height:5px;background:#0c0e12;border-radius:3px;margin-top:6px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
+  .done .bar i{background:var(--ok)} .error .s{color:var(--err)}
+  .job a{color:#fff;background:var(--ok);padding:6px 12px;border-radius:8px;text-decoration:none;font-size:13px;white-space:nowrap}
+  footer{margin-top:24px;color:var(--mut);font-size:13px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  footer button{background:none;border:1px solid var(--line);border-radius:8px;padding:4px 10px;cursor:pointer}
+  .warn{background:#3a1d22;border:1px solid var(--err);padding:10px 14px;border-radius:10px;margin-bottom:14px}
+</style>
+</head>
+<body>
+<main>
+  <h1>ClipDL</h1>
+  <p class="sub">YouTube · Twitch · TikTok → MP4 / MP3, en local.</p>
+  {% if not ffmpeg %}<div class="warn">FFmpeg introuvable : la conversion ne fonctionnera pas.</div>{% endif %}
+  <form class="card" id="f">
+    <input type="url" id="url" placeholder="Colle un lien YouTube, Twitch ou TikTok…" required autofocus>
+    <div class="row">
+      <div class="seg" id="fmt">
+        <button type="button" data-v="mp4" class="on">MP4</button>
+        <button type="button" data-v="mp3">MP3</button>
+      </div>
+      <select id="q"></select>
+      <button class="go" id="go">Convertir</button>
+    </div>
+  </form>
+  <div id="jobs"></div>
+  <footer>
+    <span>Dossier : {{ folder }} · yt-dlp {{ version }}</span>
+    <button type="button" id="open">Ouvrir le dossier</button>
+  </footer>
+</main>
+<script>
+const Q = {
+  mp4: [["best","Meilleure qualité"],["2160","4K max"],["1440","1440p max"],["1080","1080p max"],["720","720p max"],["480","480p max"]],
+  mp3: [["320","320 kbps"],["192","192 kbps"],["128","128 kbps"]]
+};
+let fmt = "mp4";
+const $ = s => document.querySelector(s);
+function fillQ(){ $("#q").innerHTML = Q[fmt].map(([v,l]) => `<option value="${v}">${l}</option>`).join(""); if(fmt==="mp4") $("#q").value="1080"; }
+fillQ();
+$("#fmt").onclick = e => {
+  const b = e.target.closest("button"); if(!b) return;
+  fmt = b.dataset.v;
+  document.querySelectorAll("#fmt button").forEach(x => x.classList.toggle("on", x === b));
+  fillQ();
+};
+$("#open").onclick = () => fetch("/api/open-folder", {method:"POST"});
+
+// Colle automatiquement le presse-papiers si c'est un lien compatible
+$("#url").addEventListener("focus", async () => {
+  if ($("#url").value) return;
+  try { const t = await navigator.clipboard.readText();
+        if (/youtu|twitch\.tv|tiktok\.com/i.test(t)) $("#url").value = t.trim(); } catch {}
+});
+
+$("#f").onsubmit = async e => {
+  e.preventDefault();
+  const url = $("#url").value.trim();
+  $("#go").disabled = true;
+  try {
+    const r = await fetch("/api/download", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({url, format: fmt, quality: $("#q").value})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error);
+    addJob(d.id, url); $("#url").value = "";
+  } catch (err) { addError(err.message); }
+  finally { $("#go").disabled = false; }
+};
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function addError(msg){
+  const el = document.createElement("div");
+  el.className = "job error";
+  el.innerHTML = `<div class="info"><div class="t">Erreur</div><div class="s">${esc(msg)}</div></div>`;
+  $("#jobs").prepend(el);
+}
+
+function addJob(id, url){
+  const el = document.createElement("div");
+  el.className = "job";
+  el.innerHTML = `<img alt=""><div class="info"><div class="t">${esc(url)}</div><div class="s">En attente…</div><div class="bar"><i></i></div></div>`;
+  $("#jobs").prepend(el);
+  const tick = async () => {
+    const d = await (await fetch(`/api/progress/${id}`)).json();
+    if (d.title) el.querySelector(".t").textContent = d.title;
+    if (d.thumbnail && !el.querySelector("img").src) el.querySelector("img").src = d.thumbnail;
+    el.querySelector(".bar i").style.width = (d.progress || 0) + "%";
+    const s = el.querySelector(".s");
+    if (d.status === "downloading") s.textContent = `Téléchargement ${d.progress}% · ${d.speed || ""} · reste ${d.eta || "?"}`;
+    else if (d.status === "converting") s.textContent = `Conversion en ${d.format.toUpperCase()}…`;
+    else if (d.status === "done") {
+      el.classList.add("done"); s.textContent = d.filename;
+      el.insertAdjacentHTML("beforeend", `<a href="/api/file/${id}">Télécharger</a>`);
+      return;
+    } else if (d.status === "error") { el.classList.add("error"); s.textContent = d.error; return; }
+    setTimeout(tick, 700);
+  };
+  tick();
+}
+</script>
+</body>
+</html>
